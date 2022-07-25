@@ -1,32 +1,44 @@
 import { Router } from "itty-router";
 import { setup } from "./setup";
 import { authorize } from "./authorize";
-import { interaction } from "./interaction";
+import { CommandInteractionHandlerWithData, interaction, InteractionDataType } from "./interaction";
 import { Permissions } from "./permissions";
-import { ApplicationCommand, InteractionHandler } from "./types";
+
+import type { CommandInteractionHandler, ComponentInteractionHandler } from "./interaction";
+import type { ApplicationCommand } from ".";
 
 const router = Router();
+
+export type Command<DataType extends InteractionDataType | void = void> = [
+  ApplicationCommand,
+  DataType extends InteractionDataType ? CommandInteractionHandlerWithData<DataType> : CommandInteractionHandler
+];
 
 export type Application = {
   applicationId: string;
   applicationSecret: string;
   publicKey: string;
   guildId?: string;
-  commands: [ApplicationCommand, InteractionHandler][];
+  commands: Command<any>[];
+  components?: Record<string, ComponentInteractionHandler>;
   permissions: Permissions;
 };
 
+export type DictCommands = Record<
+  string,
+  {
+    command: ApplicationCommand;
+    handler: CommandInteractionHandler;
+  }
+>;
+
 export const createApplicationCommandHandler = (application: Application) => {
   router.get("/", authorize(application.applicationId, application.permissions));
-  router.post("/interaction", interaction({ publicKey: application.publicKey, commands: application.commands }));
-  router.get(
-    "/setup",
-    setup({
-      applicationId: application.applicationId,
-      applicationSecret: application.applicationSecret,
-      guildId: application.guildId,
-      commands: application.commands,
-    })
-  );
+  const commands = application.commands.reduce((_commands, command) => {
+    _commands[command[0].name!] = { command: command[0], handler: command[1] };
+    return _commands;
+  }, <DictCommands>{});
+  router.post("/interaction", interaction({ publicKey: application.publicKey, commands, components: application.components }));
+  router.get("/setup", setup(application));
   return router.handle;
 };
